@@ -26,6 +26,15 @@
     
 4. Lastly, be careful not to work of a public fork of this repo. Make a private clone to work on your assignment. You are responsible for preventing other students from copying your work. Please also see point 2 above.
 
+5. Change Log:
+
+   - 2026-09-23: Updated the reference validation accuracies in
+     `simple-pytorch.ipynb` for AnimalDataset: approximately 29% for
+     the introductory MLP in Section 5 and 45–46% for the baseline
+     CNN in Section 6. Clarified that results vary across runs and
+     that the introductory MLP has no required accuracy threshold.
+     Grading requirements are unchanged.
+
 ### Problems
 
 In this MP, your will try to implement a few layers in a neural network from
