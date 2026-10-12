@@ -265,8 +265,9 @@ write for Q1 does not get used for Q2 or Q3.
    image as output by the $i^{th}$ layer $L_{i}$.
 
    Now with VPT-Deep, for $(i+1)$-th Layer $L_{i+1}$, we denote the collection
-   of input learnable prompts as $\mathbf{P}_i=\left\{\mathbf{p}_i^k \in
-   \mathbb{R}^d \mid k \in \mathbb{N}, 1 \leq k \leq m\right\}$ and concatenate
+   of input learnable prompts as
+   $\mathbf{P}_i=\left\lbrace \mathbf{p}_i^k \in \mathbb{R}^d \mid k \in \mathbb{N}, 1 \leq k \leq m \right\rbrace$
+   and concatenate
    the prompts with the embeddings on the sequence length dimension. The
    deep-prompted ViT is formulated as:
    $$\left[\mathbf{c}_i, \mathbf{Z}_i, \mathbf{X}_i\right] = L_i\left(\left[\mathbf{c}_{i-1}, \mathbf{P}_{i-1}, \mathbf{X}_{i-1}\right]\right),$$
