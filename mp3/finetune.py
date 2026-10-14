@@ -5,11 +5,13 @@ import torch
 from vision_transformer import vit_b_32, ViT_B_32_Weights
 import numpy as np
 
+
 def get_encoder(name):
-    if name == 'vit_b_32':
+    if name == "vit_b_32":
         torch.hub.set_dir("model")
         model = vit_b_32(weights=ViT_B_32_Weights.IMAGENET1K_V1)
     return model
+
 
 class ViTLinear(nn.Module):
     # NOTE: this linear-probe baseline deliberately hides the frozen backbone in a
@@ -22,13 +24,13 @@ class ViTLinear(nn.Module):
     # runs the forward pass with gradients enabled so the prompts can train.
     def __init__(self, n_classes, encoder_name):
         super(ViTLinear, self).__init__()
-        
+
         self.vit_b = [get_encoder(encoder_name)]
-        
+
         # Reinitialize the head with a new layer
         self.vit_b[0].heads[0] = nn.Identity()
         self.linear = nn.Linear(768, n_classes)
-    
+
     def to(self, device):
         super(ViTLinear, self).to(device)
         self.vit_b[0] = self.vit_b[0].to(device)
@@ -38,11 +40,49 @@ class ViTLinear(nn.Module):
             out = self.vit_b[0](x)
         y = self.linear(out)
         return y
-    
+
+
+class VITPrompt(nn.Module):
+    # NOTE: this linear-probe baseline deliberately hides the frozen backbone in a
+    # plain Python list (so it is not a registered submodule) and runs it under
+    # torch.no_grad(). Do NOT copy this pattern for Visual Prompt Tuning: prompts
+    # placed inside such a backbone are never registered as parameters, and no
+    # prompt fed through a no_grad forward gets gradients. Write a new class (e.g.
+    # VITPrompt, as suggested in demo_flower.py) that keeps the backbone
+    # as a normal attribute, freezes its weights with requires_grad=False, and
+    # runs the forward pass with gradients enabled so the prompts can train.
+    def __init__(self, n_classes, encoder_name):
+        super(ViTLinear, self).__init__()
+
+        model = [get_encoder(encoder_name)]
+        patch_size = 32
+        num_layers = 12
+        num_heads = 12
+        hidden_dim = 768
+        prompt_len = 768
+        mlp_dim = 3072
+        self.vit_b = model
+
+        self.prompts = nn.Parameter(torch.zeros(1, num_layers, prompt_len, 768))
+        # Reinitialize the head with a new layer
+        self.vit_b[0].heads[0] = nn.Identity()
+        self.linear = nn.Linear(hidden_dim, n_classes)
+
+    def to(self, device):
+        super(ViTLinear, self).to(device)
+        self.vit_b[0] = self.vit_b[0].to(device)
+
+    def forward(self, x):
+        with torch.no_grad():
+            out = self.vit_b[0](x)
+        zi = self.vit_b[0](self.prompts)
+        y = self.linear(out)
+        return y
+
 
 def test(test_loader, model, device):
     model.eval()
-    total_loss, correct, n = 0., 0., 0
+    total_loss, correct, n = 0.0, 0.0, 0
 
     for x, y in test_loader:
         x, y = x.to(device), y.to(device)
@@ -55,6 +95,7 @@ def test(test_loader, model, device):
     loss = total_loss / n
     return loss, accuracy
 
+
 def inference(test_loader, model, device, result_path):
     """Generate predicted labels for the test set."""
     model.eval()
@@ -66,16 +107,28 @@ def inference(test_loader, model, device, result_path):
             y_hat = model(x)
             pred = y_hat.argmax(dim=1)
             predictions.extend(pred.cpu().numpy())
-    
+
     with open(result_path, "w") as f:
         for pred in predictions:
             f.write(f"{pred}\n")
     print(f"Predictions saved to {result_path}")
 
-class Trainer():
-    def __init__(self, model, train_loader, val_loader, writer,
-                 optimizer, lr, wd, momentum, 
-                 scheduler, epochs, device):
+
+class Trainer:
+    def __init__(
+        self,
+        model,
+        train_loader,
+        val_loader,
+        writer,
+        optimizer,
+        lr,
+        wd,
+        momentum,
+        scheduler,
+        epochs,
+        device,
+    ):
         self.model = model
         self.train_loader = train_loader
         self.val_loader = val_loader
@@ -83,34 +136,42 @@ class Trainer():
         self.epochs = epochs
         self.device = device
         self.writer = writer
-        
+
         self.model.to(self.device)
 
-        if optimizer == 'sgd':
-            self.optimizer = torch.optim.SGD(self.model.parameters(),
-                                             lr=lr, weight_decay=wd,
-                                             momentum=momentum)
-        elif optimizer == 'adam':
-            self.optimizer = torch.optim.Adam(self.model.parameters(),
-                                              lr=lr, weight_decay=wd)
+        if optimizer == "sgd":
+            self.optimizer = torch.optim.SGD(
+                self.model.parameters(), lr=lr, weight_decay=wd, momentum=momentum
+            )
+        elif optimizer == "adam":
+            self.optimizer = torch.optim.Adam(
+                self.model.parameters(), lr=lr, weight_decay=wd
+            )
         else:
             raise ValueError(f"Unsupported optimizer: {optimizer}")
 
-        if scheduler == 'multi_step':
+        if scheduler == "multi_step":
             # drops the learning rate 10x at 60% and 80% of training (epochs 60 and 80 for 100 epochs)
             self.lr_schedule = torch.optim.lr_scheduler.MultiStepLR(
-                self.optimizer, milestones=sorted({m for m in (int(0.6 * epochs), int(0.8 * epochs)) if m > 0}), gamma=0.1)
-        elif scheduler == 'cosine':
-            self.lr_schedule = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=epochs)
-        elif scheduler in (None, 'none'):
+                self.optimizer,
+                milestones=sorted(
+                    {m for m in (int(0.6 * epochs), int(0.8 * epochs)) if m > 0}
+                ),
+                gamma=0.1,
+            )
+        elif scheduler == "cosine":
+            self.lr_schedule = torch.optim.lr_scheduler.CosineAnnealingLR(
+                self.optimizer, T_max=epochs
+            )
+        elif scheduler in (None, "none"):
             self.lr_schedule = None
         else:
             raise ValueError(f"Unsupported scheduler: {scheduler}")
 
     def train_epoch(self):
         self.model.train()
-        total_loss, correct, n = 0., 0., 0
-        
+        total_loss, correct, n = 0.0, 0.0, 0
+
         for x, y in self.train_loader:
             x, y = x.to(self.device), y.to(self.device)
             y_hat = self.model(x)
@@ -122,10 +183,10 @@ class Trainer():
             self.optimizer.zero_grad()
             n += 1
         return total_loss / n, correct / n
-    
+
     def val_epoch(self):
         self.model.eval()
-        total_loss, correct, n = 0., 0., 0
+        total_loss, correct, n = 0.0, 0.0, 0
 
         for x, y in self.val_loader:
             x, y = x.to(self.device), y.to(self.device)
@@ -141,15 +202,15 @@ class Trainer():
     def train(self, model_file_name, best_val_acc=-np.inf):
         best_epoch = np.nan
         for epoch in range(self.epochs):
-            logging.info(f'Training Epoch {epoch}')
+            logging.info(f"Training Epoch {epoch}")
             train_loss, train_acc = self.train_epoch()
-            logging.info(f'Validating at Epoch {epoch}')
+            logging.info(f"Validating at Epoch {epoch}")
             val_loss, val_acc = self.val_epoch()
-            self.writer.add_scalar('lr', self.optimizer.param_groups[0]['lr'], epoch)
-            self.writer.add_scalar('val_acc', val_acc, epoch)
-            self.writer.add_scalar('val_loss', val_loss, epoch)
-            self.writer.add_scalar('train_acc', train_acc, epoch)
-            self.writer.add_scalar('train_loss', train_loss, epoch)
+            self.writer.add_scalar("lr", self.optimizer.param_groups[0]["lr"], epoch)
+            self.writer.add_scalar("val_acc", val_acc, epoch)
+            self.writer.add_scalar("val_loss", val_loss, epoch)
+            self.writer.add_scalar("train_acc", train_acc, epoch)
+            self.writer.add_scalar("train_loss", train_loss, epoch)
             if val_acc > best_val_acc:
                 best_val_acc = val_acc
                 best_epoch = epoch

@@ -36,6 +36,16 @@ set -o pipefail
 OUTPUT_DIR=${OUTPUT_DIR:="runs_pixmo/pixmo_demo"}
 EXP_NAME=${EXP_NAME:="pixmo_demo"}
 
+# Automatically increment directory name if it already exists
+if [ -d "$OUTPUT_DIR" ]; then
+    base="${OUTPUT_DIR}"
+    counter=1
+    while [ -d "${base}_${counter}" ]; do
+        counter=$((counter + 1))
+    done
+    OUTPUT_DIR="${base}_${counter}"
+fi
+
 mkdir -p ${OUTPUT_DIR}
 LOG_FILE="${OUTPUT_DIR}/log.txt"
 

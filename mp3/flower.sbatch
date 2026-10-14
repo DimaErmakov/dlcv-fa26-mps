@@ -33,8 +33,20 @@ set -o pipefail
 # Use a different OUTPUT_DIR for every run, or the new run overwrites the
 # previous one. EXP_NAME selects the hyperparameter block in config.yaml, so
 # every new EXP_NAME needs its own block there.
+# OUTPUT_DIR and EXP_NAME are passed in from the command line via
+#   sbatch --export=ALL,OUTPUT_DIR=...,EXP_NAME=... (see README.md).
 OUTPUT_DIR=${OUTPUT_DIR:="runs_flower/vit_linear"}
 EXP_NAME=${EXP_NAME:="vit_linear"}
+
+# Automatically increment directory name if it already exists
+if [ -d "$OUTPUT_DIR" ]; then
+    base="${OUTPUT_DIR}"
+    counter=1
+    while [ -d "${base}_${counter}" ]; do
+        counter=$((counter + 1))
+    done
+    OUTPUT_DIR="${base}_${counter}"
+fi
 
 mkdir -p ${OUTPUT_DIR}
 LOG_FILE="${OUTPUT_DIR}/log.txt"
