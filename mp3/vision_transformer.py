@@ -160,11 +160,12 @@ class Encoder(nn.Module):
         self.ln = norm_layer(hidden_dim)
 
     def forward(self, input: torch.Tensor):
+        # y, prompts = input
         torch._assert(
             input.dim() == 3,
             f"Expected (batch_size, seq_length, hidden_dim) got {input.shape}",
         )
-        input = input + self.prompts + self.pos_embedding
+        input = input + self.pos_embedding
         # input = input + self.prompts + self.pos_embedding
         return self.ln(self.layers(self.dropout(input)))
 

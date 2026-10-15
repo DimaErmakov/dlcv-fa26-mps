@@ -35,10 +35,17 @@ class _AdaptiveAvgPool2dMPSSafe(nn.AdaptiveAvgPool2d):
     kernel for that case; gradients still flow through the device copies."""
 
     def forward(self, x):
-        if x.device.type == 'mps':
-            out = self.output_size if isinstance(self.output_size, tuple) else (self.output_size, self.output_size)
+        if x.device.type == "mps":
+            out = (
+                self.output_size
+                if isinstance(self.output_size, tuple)
+                else (self.output_size, self.output_size)
+            )
             h, w = x.shape[-2:]
-            divisible = all(o is not None and (i % o == 0 or o % i == 0) for i, o in zip((h, w), out))
+            divisible = all(
+                o is not None and (i % o == 0 or o % i == 0)
+                for i, o in zip((h, w), out)
+            )
             if not divisible:
                 return super().forward(x.cpu()).to(x.device)
         return super().forward(x)
@@ -65,15 +72,17 @@ class ConvEncoder(nn.Module):
         # Load pre-trained ResNet34 for feature extraction
         self.conv_encoder = models.resnet34(weights=ResNet34_Weights.DEFAULT)
         self.patch_tokens = patch_tokens
-        
+
         # Replace global average pooling with adaptive pooling to get fixed patch grid
-        self.conv_encoder.avgpool = _AdaptiveAvgPool2dMPSSafe((self.patch_tokens, self.patch_tokens))
+        self.conv_encoder.avgpool = _AdaptiveAvgPool2dMPSSafe(
+            (self.patch_tokens, self.patch_tokens)
+        )
         # Remove the final classification layer
         self.conv_encoder.fc = nn.Identity()
-        
+
         # Extract feature dimension from the last convolutional layer
         self.feature_dim = self.conv_encoder.layer4[-1].conv2.out_channels
-        
+
         # Fine-tuning strategy: freeze most layers, only train the last layer
         for param in self.conv_encoder.parameters():
             param.requires_grad = False
@@ -87,8 +96,8 @@ class ConvEncoder(nn.Module):
         #    - Reshape from (B, C, H, W) to (B, C, patch_tokens, patch_tokens)
         #    - Permute to (B, patch_tokens, patch_tokens, C)
         #    - Reshape to (B, num_patches, C) where num_patches = patch_tokens * patch_tokens
-        
-        x = self.conv_encoder(x) # B, C, H, W
+
+        x = self.conv_encoder(x)  # B, C, H, W
         bz = x.shape[0]
         x = x.reshape(bz, self.feature_dim, self.patch_tokens, self.patch_tokens)
         x = x.permute(0, 2, 3, 1)
@@ -120,17 +129,17 @@ class Classifier(nn.Module):
 
         # Multi-layer perceptron for classification
         self.mlp = nn.Sequential(
-                nn.Linear(feature_dim, 512),      # First linear layer
-                nn.BatchNorm1d(512),              # Batch normalization
-                nn.GELU(),                        # GELU activation function
-                nn.Dropout(dropout),              # Dropout for regularization
-                nn.Linear(512, num_classes),      # Final classification layer
-            )
+            nn.Linear(feature_dim, 512),  # First linear layer
+            nn.BatchNorm1d(512),  # Batch normalization
+            nn.GELU(),  # GELU activation function
+            nn.Dropout(dropout),  # Dropout for regularization
+            nn.Linear(512, num_classes),  # Final classification layer
+        )
 
     def forward(self, x):
         # 1. Flatten the input across the sequence dimension (num_tokens)
         # 2. Pass through the MLP to get classification logits
-        
+
         x = torch.flatten(x, 1)
         x = self.mlp(x)
         return x
@@ -160,8 +169,15 @@ class PixMoModel(nn.Module):
         logits (batch, num_classes): classification logits for each class
     """
 
-    def __init__(self, num_classes, feature_dim=512, num_heads=2, num_layers=2,
-                 patch_tokens=1, dropout=0.1):
+    def __init__(
+        self,
+        num_classes,
+        feature_dim=512,
+        num_heads=2,
+        num_layers=2,
+        patch_tokens=1,
+        dropout=0.1,
+    ):
         super().__init__()
         # Image tokenization using convolutional encoder. Its tokens are 512-d
         # (ResNet34), so feature_dim must stay 512 unless you add a projection
@@ -169,12 +185,16 @@ class PixMoModel(nn.Module):
         self.tokenizer = ConvEncoder(patch_tokens=patch_tokens)
 
         # use PyTorch's built-in TransformerEncoderLayer
-        encoder_layers = TransformerEncoderLayer(d_model=feature_dim, nhead=num_heads, dropout=dropout, batch_first=True)
+        encoder_layers = TransformerEncoderLayer(
+            d_model=feature_dim, nhead=num_heads, dropout=dropout, batch_first=True
+        )
         self.encoder = TransformerEncoder(encoder_layers, num_layers=num_layers)
 
         # Classification head for final predictions
         # The classifier flattens all patch_tokens**2 tokens, so size it accordingly
-        self.classifier = Classifier(feature_dim * patch_tokens * patch_tokens, num_classes, dropout=dropout)
+        self.classifier = Classifier(
+            feature_dim * patch_tokens * patch_tokens, num_classes, dropout=dropout
+        )
 
     def forward(self, x, points=None):
         # TODO(student)
@@ -182,15 +202,16 @@ class PixMoModel(nn.Module):
         #    - Convert images to patch tokens using the tokenizer
         #    - Process tokens through the transformer encoder
         #    - Apply classification head to get final logits
-        
+
         # Step 1: Convert images to patch tokens
-        img_tokens = self.tokenizer(x)      # (B, L, C)
-        
+        img_tokens = self.tokenizer(x)  # (B, L, C)
+
         # Step 2: Process through transformer encoder
         # TODO: Apply self.encoder (TransformerEncoder) to img_tokens.
         # NOTE: the encoder is built in __init__ but NOT used here yet, so the
         # starter baseline (~0.28 val accuracy) is ResNet34 features + MLP only.
         # Wiring the encoder into the forward pass is the first thing to do.
+        img_tokens = self.encoder(img_tokens)
 
         # Step 3: Classification (flattens across sequence length L)
         logits = self.classifier(img_tokens)
@@ -221,28 +242,36 @@ class Trainer:
         train(): Main training loop with checkpointing
     """
 
-    def __init__(self, model, train_loader, val_loader, writer,
-                 optimizer, lr, wd=0.01, momentum=0.99, 
-                 scheduler=None, epochs=20, device='cuda:0'):
+    def __init__(
+        self,
+        model,
+        train_loader,
+        val_loader,
+        writer,
+        optimizer,
+        lr,
+        wd=0.01,
+        momentum=0.99,
+        scheduler=None,
+        epochs=20,
+        device="cuda:0",
+    ):
         self.model = model
         self.train_loader = train_loader
         self.val_loader = val_loader
         self.writer = writer
         self.epochs = epochs
         self.device = device
-        
+
         # Move model to device
         self.model.to(self.device)
 
         # Initialize optimizer
-        if optimizer == 'sgd':
+        if optimizer == "sgd":
             self.optimizer = torch.optim.SGD(
-                self.model.parameters(), 
-                lr=lr, 
-                weight_decay=wd,
-                momentum=momentum
+                self.model.parameters(), lr=lr, weight_decay=wd, momentum=momentum
             )
-        elif optimizer == 'adam':
+        elif optimizer == "adam":
             self.optimizer = torch.optim.Adam(
                 self.model.parameters(),
                 lr=lr,
@@ -250,13 +279,17 @@ class Trainer:
             )
         else:
             raise ValueError(f"Unsupported optimizer: {optimizer}")
-            
+
         # Initialize learning rate scheduler
-        if scheduler == 'multi_step':
+        if scheduler == "multi_step":
             self.lr_schedule = torch.optim.lr_scheduler.MultiStepLR(
-                self.optimizer, milestones=sorted({m for m in (int(0.6 * epochs), int(0.8 * epochs)) if m > 0}), gamma=0.1
+                self.optimizer,
+                milestones=sorted(
+                    {m for m in (int(0.6 * epochs), int(0.8 * epochs)) if m > 0}
+                ),
+                gamma=0.1,
             )
-        elif scheduler == 'cosine':
+        elif scheduler == "cosine":
             self.lr_schedule = torch.optim.lr_scheduler.CosineAnnealingLR(
                 self.optimizer, T_max=epochs
             )
@@ -267,108 +300,108 @@ class Trainer:
     def train_epoch(self):
         """
         Run one training epoch.
-        
+
         Returns:
             tuple: (average_loss, accuracy) for the epoch
         """
         self.model.train()
-        total_loss, correct, n = 0., 0., 0
-        
+        total_loss, correct, n = 0.0, 0.0, 0
+
         for data in self.train_loader:
             image, label, point = data
             x, y = image.to(self.device), label.to(self.device)
             point = point.to(self.device)
-            
+
             # Forward pass
             y_hat = self.model(x, point)
             loss = nn.CrossEntropyLoss()(y_hat, y)
-            
+
             # Backward pass
             loss.backward()
             self.optimizer.step()
             self.optimizer.zero_grad()
-            
+
             # Update metrics
             total_loss += loss.item()
             correct += (y_hat.argmax(dim=1) == y).float().mean().item()
             n += 1
-            
+
         return total_loss / n, correct / n
-    
+
     def val_epoch(self):
         """
         Run one validation epoch.
-        
+
         Returns:
             tuple: (average_loss, accuracy) for the epoch
         """
         self.model.eval()
-        total_loss, correct, n = 0., 0., 0
+        total_loss, correct, n = 0.0, 0.0, 0
 
         with torch.no_grad():
             for data in self.val_loader:
                 image, label, point = data
                 x, y = image.to(self.device), label.to(self.device)
                 point = point.to(self.device)
-                
+
                 # Forward pass
                 y_hat = self.model(x, point)
                 loss = nn.CrossEntropyLoss()(y_hat, y)
-                
+
                 # Update metrics
                 total_loss += loss.item()
                 correct += (y_hat.argmax(dim=1) == y).float().mean().item()
                 n += 1
-                
+
         return total_loss / n, correct / n
 
     def train(self, model_file_name, best_val_acc=-np.inf):
         """
         Main training loop with validation and checkpointing.
-        
+
         Args:
             model_file_name (str): path to save the best model
             best_val_acc (float): initial best validation accuracy
-            
+
         Returns:
             tuple: (best_validation_accuracy, best_epoch)
         """
         best_epoch = np.nan
-        
+
         for epoch in range(self.epochs):
             # Training epoch
-            logging.info(f'Training Epoch {epoch}')
+            logging.info(f"Training Epoch {epoch}")
             train_loss, train_acc = self.train_epoch()
-            
+
             # Validation epoch
-            logging.info(f'Validating after Epoch {epoch}')
+            logging.info(f"Validating after Epoch {epoch}")
             val_loss, val_acc = self.val_epoch()
-            
+
             # Log metrics to tensorboard
             if self.lr_schedule is not None:
-                self.writer.add_scalar('lr', self.lr_schedule.get_last_lr()[0], epoch)
-            self.writer.add_scalar('val_acc', val_acc, epoch)
-            self.writer.add_scalar('val_loss', val_loss, epoch)
-            self.writer.add_scalar('train_acc', train_acc, epoch)
-            self.writer.add_scalar('train_loss', train_loss, epoch)
-            
+                self.writer.add_scalar("lr", self.lr_schedule.get_last_lr()[0], epoch)
+            self.writer.add_scalar("val_acc", val_acc, epoch)
+            self.writer.add_scalar("val_loss", val_loss, epoch)
+            self.writer.add_scalar("train_acc", train_acc, epoch)
+            self.writer.add_scalar("train_loss", train_loss, epoch)
+
             # Save best model
             if val_acc > best_val_acc:
                 best_val_acc = val_acc
                 best_epoch = epoch
                 torch.save(self.model.state_dict(), model_file_name)
-                
+
             # Step learning rate scheduler
             if self.lr_schedule is not None:
                 self.lr_schedule.step()
-        
+
         return best_val_acc, best_epoch
 
 
 def inference(test_loader, model, device, result_path):
     """
     Generate predicted labels for the test set and save to file.
-    
+
     Args:
         test_loader (DataLoader): test data loader
         model (nn.Module): trained model
@@ -377,16 +410,18 @@ def inference(test_loader, model, device, result_path):
     """
     model.eval()
     predictions = []
-    
+
     with torch.no_grad():
-        for data in tqdm(test_loader, file=sys.stdout, ncols=80, mininterval=10, dynamic_ncols=False):
+        for data in tqdm(
+            test_loader, file=sys.stdout, ncols=80, mininterval=10, dynamic_ncols=False
+        ):
             image, _, point = data
             x = image.to(device)
             point = point.to(device)
             y_hat = model(x, point)
             pred = y_hat.argmax(dim=1)
             predictions.extend(pred.cpu().numpy())
-    
+
     # Save predictions to file
     with open(result_path, "w") as f:
         for pred in predictions:

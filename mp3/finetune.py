@@ -59,12 +59,14 @@ class VITPrompt(nn.Module):
         num_layers = 12
         num_heads = 12
         hidden_dim = 768
-        prompt_len = 768
+        prompt_len = 10  # TODO Adjust when working
         mlp_dim = 3072
         self.vit_b = model
 
         self.prompts = nn.Parameter(torch.zeros(1, num_layers, prompt_len, 768))
         # Reinitialize the head with a new layer
+        for param in self.vit_b[0].parameters():
+            param.requires_grad = False
         self.vit_b[0].heads[0] = nn.Identity()
         self.linear = nn.Linear(hidden_dim, n_classes)
 
@@ -73,9 +75,7 @@ class VITPrompt(nn.Module):
         self.vit_b[0] = self.vit_b[0].to(device)
 
     def forward(self, x):
-        with torch.no_grad():
-            out = self.vit_b[0](x)
-        zi = self.vit_b[0](self.prompts)
+        out = self.vit_b[0](x, self.prompts)
         y = self.linear(out)
         return y
 

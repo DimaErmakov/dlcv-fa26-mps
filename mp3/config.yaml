@@ -10,7 +10,7 @@ vit_linear:
   optimizer: "sgd"
   scheduler: "multi_step"
   momentum: 0.99
-  net_class: ViTLinear
+  net_class: VITPrompt
   batch_size: 32
 
 pixmo_demo:

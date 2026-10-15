@@ -16,8 +16,8 @@
 # allocation balance is low.
 #SBATCH --time=00:20:00
 
-#SBATCH --mail-user=NETID@illinois.edu  # replace with your email
-#SBATCH --mail-type=NONE                # Type of email notifications to send
+#SBATCH --mail-user=ermakovd06@gmail.com
+#SBATCH --mail-type=START,END
 
 #SBATCH --output=ece494mp3.2-%x-%j.out  # Default name of batch job output file if not set on command line
 #SBATCH --error=ece494mp3.2-%x-%j.err   # Default name of batch job error file if not set on command line
